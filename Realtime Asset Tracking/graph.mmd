@@ -1,0 +1,21 @@
+
+graph LR;
+	classDef Topic fill:#7FDBFF;
+	classDef Collection fill:#fc9846;
+	classDef CodeService fill:#5fd36a
+
+    Device-->|publish|location[Topic: /location]
+    location[Topic: /location]-->RTAssetCheckGeofence[Code Service: RTAssetCheckGeofence];
+    RTAssetCheckGeofence-->|publish|geofence[Topic: /geofence]
+
+    location[Topic: location]-->RTAssetHTTPIntegration[Code Service: RTAssetHTTPIntegration];
+
+    location[Topic: /location]-->RTAssetLogLocation[Code Service: RTAssetLogLocation];
+    RTAssetLogLocation-->|Insert|LocationLogs[Collection: location_logs]
+
+    location[Topic: /location]-->RTAssetUpdateTagLocation[Code Service: RTAssetUpdateTagLocation];
+    RTAssetUpdateTagLocation-->|Update|Tags[Collection:tags]
+
+    class location,geofence Topic
+    class location_logs,tags Collection
+    class RTAssetCheckGeofence,RTAssetHTTPIntegration,RTAssetLogLocation,RTAssetUpdateTagLocation CodeService
