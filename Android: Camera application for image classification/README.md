@@ -15,14 +15,3 @@ We are using TensorFlow library of python here. TensorFlow is an open-source sof
 * Install Tensorflow `$ pip install --upgrade "tensorflow==1.7.*"`  
 * Android Studio setup [v3.1+]
 * Android Device(With Debugging Enabled) or Emulator (API Level = 27, Target = Android 8.1)
-
-#### Output will be similiar to below images in real device:
-<p float="center">
-  <img src="https://drive.google.com/uc?id=1yDcRRrjgrig1R2Bpo2u-6neLrQ9bLkKh" width="195" />
-  <img src="https://drive.google.com/uc?id=1oc7hk3796frk6eCw-udGNy8GatUczbvt" width="195" /> 
-  <img src="https://drive.google.com/uc?id=15ix8M0mGlIzKLj2fe6h-JSUj1yfNpGns" width="195" />
-  <img src="https://drive.google.com/uc?id=1tkabGhP12KaWRoRsJATDI1-lwqQVn3IX" width="195" />
-</p><br>
-
-##### _CLI version of same_:
-> **https://github.com/tarunmaini16/image-classifier**
