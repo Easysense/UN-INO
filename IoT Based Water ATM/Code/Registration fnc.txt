@@ -1,0 +1,236 @@
+
+void write_initial_card()
+{
+  int n = 0;
+  unsigned int adrs = 0;
+  adrs = tag_address_initial;
+  n = 0;
+  for (unsigned int k = adrs; k < adrs + 12; k++)
+  {
+    writeEEPROM(eeprom1, k, newTag[n]);//store tag
+    n++; dly(1);
+  }
+  lcd_print(0, 2, "Saved as ID#");
+  lcd.setCursor(12, 2);
+  lcd.print(card_volume);
+  dly(2000);
+  store_mobile_no();
+  card_volume += 1; //increase card volume
+  update_card_volume(card_volume);
+  card_volume = read_card_volume();
+  dly(2000);
+}
+/******************************************************************************/
+
+void new_card_registration_fnc()
+{
+  lcd_print(0, 0, "NEW REGISTRATION_");
+  lcd_print(0, 1, "SCAN NEW CARD");
+  lcd_print(13, 3, "F2:Exit");
+  read_RFID();
+
+  if (rfid_read_ok == 1)
+  {
+    card_volume =  read_card_volume();//find how many cards are registered
+
+    lcd.setCursor(15, 1);
+    lcd.print(card_volume);
+
+    if (card_volume == 0) //for the first one
+    {
+      write_initial_card();
+    }
+    else
+    {
+      //scan tags
+      card_volume = read_card_volume();
+      unsigned int scan_range = card_volume;
+      unsigned int any_match[scan_range];
+      for (unsigned int i = 0; i < scan_range; i++)
+      {
+        any_match[i] = 0; //clear any match
+      }
+      for (unsigned int i = 0; i < scan_range; i++)
+      {
+        int n;
+        unsigned int adrs;
+        adrs = tag_address_initial + i * 12;
+        n = 0;
+        clear_oldTag();
+        read_oldTag(adrs);
+        compare_with_oldTag();
+        //if found any match....
+        // do something;
+        if (total > 0)
+        {
+          any_match[i] = 1;
+        }
+        else
+        {
+          any_match[i] = 0;
+        }
+      }//end of for(scan)loop()
+
+      unsigned int match_cnt = 0;
+      for (unsigned int i = 0; i < scan_range; i++)
+      {
+        match_cnt += any_match[i];
+      }
+
+      if (match_cnt > 0) //any match found in history
+      {
+        lcd_print(0, 2, "PREV. REGISTERED");
+        lcd_print(0, 3, "Try new card");
+        dly(2000);
+        lcd.clear(); dly(100);
+      }
+      else // store new card in EEPROM
+      {
+        int n = 0;
+        unsigned int adrs = 0;
+        adrs = tag_address_initial + (card_volume * 12);
+        n = 0;
+        for (unsigned int k = adrs; k < adrs + 12; k++)
+        {
+          writeEEPROM(eeprom1, k, newTag[n]);//store tag
+          n++; dly(1);
+        }
+
+        lcd_print(0, 2, "Saved as ID#");
+        lcd.setCursor(12, 2);
+        lcd.print(card_volume);
+        dly(2000);
+        store_mobile_no();
+        card_volume += 1; //increase card volume
+        update_card_volume(card_volume);
+        card_volume = read_card_volume();
+        dly(2000);
+      }
+    }
+    rfid_read_ok = 0;//reset read ok mask
+    clean_newTag();
+    lcd_print(18, 0, "  ");
+  }//rfid_read_ok == 1
+  exit_from_fnc();
+}
+/******************************************************************************/
+
+void store_mobile_no()
+{
+  //take mobile numbers
+again12:
+  lcd.clear(); dly(100);
+  lcd_print(0, 0, "SET MOBILE NO:");
+  lcd_print(0, 3, "F1:ENTER   F2:Clr");
+  char mobile_no[12];
+  int prs = 0;
+  lcd_print(0, 1, "___________");
+  lcd.setCursor(0, 1);
+  for (prs = 0; prs < 12;)
+  {
+    customKeypad.tick();
+    wdt_reset();
+    while (customKeypad.available())
+    {
+      keypadEvent e = customKeypad.read();
+      if (e.bit.EVENT == KEY_JUST_PRESSED)
+      {
+        beep();
+        mobile_no[prs] = (char)e.bit.KEY;
+        if (mobile_no[prs] != '*')lcd.print(mobile_no[prs]);
+        if (mobile_no[prs] == '#')
+        {
+          prs = 0;
+          goto again12;
+        }
+        if (mobile_no[prs] == '*')//save mobile numbers
+        {
+          int n = 0;
+          unsigned int adrs_mobile_no = mobile_no_address_initial + (card_volume * 11);
+          for (unsigned int k = adrs_mobile_no; k < adrs_mobile_no + 11; k++)//store saved tag into oldTag
+          {
+            writeEEPROM(eeprom1, k, mobile_no[n]);//store mobile no
+            n++; dly(1);
+          }
+          //clear mobile no
+          for (int k = 0; k < 11; k++)
+          {
+            mobile_no[k] = 0;
+          }
+          //read mobile no again
+          n = 0;
+          for (unsigned int k = adrs_mobile_no; k < adrs_mobile_no + 11; k++)//store saved tag into oldTag
+          {
+            mobile_no[n] = readEEPROM(eeprom1, k);//read mobile no
+            n++; dly(1);
+          }
+          lcd.clear(); dly(100);
+          lcd_print(0, 0, "Mob. No Saved as_");
+          lcd.setCursor(0, 1);
+          for (int k = 0; k < 11; k++)
+          {
+            lcd.print(mobile_no[k]);
+          }
+          lcd.print(" ");
+          dly(4000); lcd.clear(); dly(100);
+          //activate user registration data posting
+
+          enable_user_registration_data_posting();
+          write_editing_id_no(card_volume);
+          int post_status = readEEPROM(eeprom1, 95);//check if posting was successfull or not
+          if (post_status == 1)
+          {
+            Send_data_over_net_user_registration_data(card_volume);
+            user_registration_data_posting_done();
+            beep();
+            lcd.clear(); dly(100);
+          }
+          operation_mode = 0;
+          prs = 13;//over the for loop
+          key_value = 0;
+        }
+        wdt_reset();
+        prs++;
+        if(prs==12)
+        {
+          prs=0;
+          goto again12;
+        }
+      }
+    }
+    dly(10);
+  }//mobile no fnc end
+}
+
+void enable_user_registration_data_posting()
+{
+  writeEEPROM(eeprom1, 95, 1);//activate posting
+}
+
+void user_registration_data_posting_done()
+{
+  writeEEPROM(eeprom1, 95, 0);//posting was successfull!
+}
+
+void write_editing_id_no(unsigned int id_no)
+{
+  writeEEPROM(eeprom1, 5, id_no / 1000 % 10);
+  writeEEPROM(eeprom1, 6, id_no / 100 % 10 );
+  writeEEPROM(eeprom1, 7, id_no / 10 % 10);
+  writeEEPROM(eeprom1, 8, id_no / 1 % 10);
+}
+
+int read_editing_id_no()
+{
+  unsigned int editing_id_no;
+  editing_id_no = readEEPROM(eeprom1, 5) * 1000
+                  + readEEPROM(eeprom1, 6) * 100
+                  + readEEPROM(eeprom1, 7) * 10
+                  + readEEPROM(eeprom1, 8);
+  return editing_id_no;
+}
+
+
+
+
+/******************************************************************************/

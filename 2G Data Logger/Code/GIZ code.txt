@@ -1,0 +1,343 @@
+/**********************************************************************************
+   Program for datalogger (GIZ: 4 layer PCB)
+   Program Written by_ Engr. Mithun K. Das
+   MCU:Atmega2560 TQFP
+   Date:21-01-2021
+ **********************************************************************************/
+#include <LiquidCrystal.h>
+LiquidCrystal lcd(49, 48, 47, 46, 45, 43);
+#include <avr/wdt.h>
+#include "Constants.h"
+#include "subfunctions.h"
+
+
+
+
+void setup()
+{
+  initializing();
+  digitalWrite(FONA_RST, LOW); delay(100); wdt_reset();
+  digitalWrite(FONA_RST, HIGH); delay(300); wdt_reset();
+  GSM_ON();
+  check_mmc();
+  sensor_int();
+  Read_sensors();
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("SYSTEM MONITORING ON");
+  wdt_enable(WDTO_8S);   
+  Send_data_over_net(input_temp, output_temp, input_flow, output_flow);
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("SYSTEM MONITORING ON");
+}
+
+/************************************************************/
+/************************************************************/
+
+void loop()
+{
+  wdt_reset();
+  battery_management();
+
+  if (battery_ok == 1)
+  {
+    lcd.setCursor(0, 0);
+    lcd.print("EasySense Datalogger");
+    Read_sensors();
+    show_time();
+    wdt_reset();
+    delay(500);
+
+    //Send_data_over_net();
+
+
+    if (minute1 != minute2) //save data per minute
+    {
+      lcd.setCursor(0, 0);
+      lcd.print("EasySense Datalogger");
+      Save_on_SD();
+      minute2 = minute1;
+      lcd.clear();
+    }
+
+
+    if (minute1 == 30 || minute1 == 45 || minute1 == 15 || minute1 == 0 && mask == 1) //send data to web per half an hour
+    {
+      //send data to website
+      Send_data_over_net(input_temp, output_temp, input_flow, output_flow);
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("EasySense Datalogger");
+      mask = 0;
+    }
+    if (minute1 != 30 || minute1 != 45 || minute1 != 15 || minute1 != 0)
+    {
+      mask = 1; //reset mask
+    }
+
+  }
+  else
+  {
+    digitalWrite(FONA_RST, LOW);//rest GSM
+    lcd.begin(20, 4);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Battery low!");
+    lcd.setCursor(0, 1);
+    lcd.print("System OFF");
+    Serial.println(F("SYSTEM OFF. BATTERY LOW!"));
+    wdt_reset();
+    delay(3000);
+    wdt_reset();
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+}//end of void loop
+
+/*************************************************************************************/
+/*************************************************************************************/
+
+
+void Send_data_over_net(unsigned int input_temp, unsigned int output_temp, unsigned int in_flow, unsigned int out_flow)
+{
+  lcd.clear(); dly(100);
+  lcd.setCursor(0, 0);
+  lcd.print("UPLOADING TO SERVER");
+  net_status = fona.getNetworkStatus();
+  if (net_status != 1)
+  {
+    GSM_ON();
+  }
+again:
+
+  if (!gprs_on)//check if GPRS is on
+  {
+    GPRS_ON(); dly(1);
+    goto again;
+  }
+
+  link =  "in_temp=" + String(input_temp) + "&out_temp=" + String(output_temp) + "&in_flow=" + String(in_flow) + "&out_flow=" + String(out_flow);
+  // Length (with one extra character for the null terminator)
+  int str_len = link.length() + 1;
+  wdt_reset();
+  // Prepare the character array (the buffer)
+  char char_array[str_len];
+
+  // Copy it over
+  link.toCharArray(char_array, str_len);
+
+  sprintf(http_cmd, "%s=%s", url_string, char_array);
+  lcd.setCursor(0, 1);
+  lcd.print("POSTING...");
+  Serial.println();
+  Serial.print("Uploading:");
+  Serial.println(link);
+  wdt_reset();
+  if (!fona.HTTP_GET_start(http_cmd, &statuscode, (uint16_t *)&length))
+  {
+    Serial.println(F("POSTING FAILED!"));
+    wdt_reset();
+    lcd.setCursor(0, 1);
+    lcd.print("POSTING FAILED!");
+    gprs_on = false;
+    gprs_fail_counter ++;
+    if (gprs_fail_counter > 3)
+    {
+      gprs_fail_counter = 0; wdt_reset();
+      digitalWrite(FONA_RST, LOW); dly(1000); wdt_reset();
+      digitalWrite(FONA_RST, HIGH); dly(1000); wdt_reset();
+      fona.begin(fona);//turn off gprs
+      net_status = fona.getNetworkStatus();
+      if (net_status != 1)
+      {
+        GSM_ON();
+      }
+      GPRS_ON();
+    }
+    else
+    {
+      goto again;
+    }
+  }
+  wdt_reset();
+  while (length > 0)
+  {
+    while (fona.available())
+    {
+      char c = fona.read();
+      response += c;
+      length--;
+    }
+  }
+  Serial.println(response);
+  if (statuscode == 200)
+  {
+    Serial.println(F("Posting Success!"));
+    lcd.setCursor(0, 1);
+    lcd.print("POSTING DONE!");
+    posting_ok = 1; //posting ok mask
+    gprs_fail_counter = 0;
+    dly(1000); wdt_reset();
+    tcp_on = false;
+    fonaSerial->begin(4800);//turn off gprs
+    wdt_reset();
+    response = " ";
+    restart_gsm();
+  }
+  else
+  {
+    goto again;
+  }
+  dly(1000);
+  lcd.clear();
+
+}
+
+
+
+
+void GSM_ON()
+{
+  // make it slow so its easy to read!
+again:
+  dly(1);
+  fonaSerial->begin(4800);
+  if (! fona.begin(*fonaSerial)) {
+    Serial.println(F("Couldn't find FONA"));
+    digitalWrite(FONA_RST, LOW); dly(100);
+    digitalWrite(FONA_RST, HIGH); dly(300);
+    lcd.setCursor(0, 1);
+    lcd.print("GSM FAILED       ");
+    goto again;
+    while (1);
+  }
+  Serial.println(F("FONA is OK"));
+
+  dly(2000);
+  net_status = fona.getNetworkStatus();
+  while (net_status != 1)
+  {
+    net_status = fona.getNetworkStatus();
+    dly(2000);
+  }
+  wdt_reset();
+  Serial.println(F("Registered ok"));
+  lcd.setCursor(0, 1);
+  lcd.print("GSM OK           ");
+}
+
+/*******************************************************/
+void restart_gsm()
+{
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("RESTING GSM      ");
+  digitalWrite(FONA_RST, LOW); dly(100);
+  dly(2000);
+  lcd.clear(); dly(100);  
+  digitalWrite(FONA_RST, HIGH); dly(100);
+}
+/*******************************************************/
+
+void GPRS_ON()
+{
+top:
+  Serial.print(F("Turning on GPRS... "));
+  lcd.setCursor(0, 1);
+  lcd.print("TURNING GPRS ON...  ");
+  dly(2000);
+  wdt_reset();
+  while (!gprs_on)
+  {
+    if (!fona.enableGPRS(true))
+    {
+      Serial.println(F("Failed to turn on GPRS"));
+      Serial.println(F("Trying again..."));
+      lcd.setCursor(0, 1);
+      lcd.print("GPRS FAILED!       ");
+      dly(2000); wdt_reset();
+      gprs_fail_counter++;
+      if (gprs_fail_counter > 4)
+      {
+        gprs_fail_counter = 0;
+        GSM_ON();
+        goto top;
+      }
+      gprs_on = false;
+    }
+    else
+    {
+      Serial.println(F("GPRS now turned on"));
+      lcd.setCursor(0, 1);
+      lcd.print("GPRS ON           ");
+      dly(2000); wdt_reset();
+      gprs_on = true;
+    }
+  }
+}
+
+
+/*************************************************************************************/
+/*************************************************************************************/
+void show_time()
+{
+  DateTime now = RTC.now();
+  lcd.setCursor(0, 3);
+  minute1 = now.minute(), DEC;
+  hour1 = now.hour(), DEC;
+  if (hour1 > 12)
+  {
+    hour1 -= 12;
+    lcd.print(hour1);
+    lcd.print(":");
+    lcd.print(now.minute(), DEC);
+    lcd.print(":");
+    lcd.print(now.second(), DEC);
+    lcd.print("P ");
+  }
+  else
+  {
+    lcd.print(hour1);
+    lcd.print(":");
+    lcd.print(now.minute(), DEC);
+    lcd.print(":");
+    lcd.print(now.second(), DEC);
+    lcd.print("A ");
+  }
+
+  lcd.setCursor(9, 3);
+  lcd.print(now.day(), DEC);
+  lcd.print("/");
+  lcd.print(now.month(), DEC);
+  lcd.print("/");
+  lcd.print(now.year(), DEC);
+  lcd.print(" ");
+
+  Serial.print(now.hour(), DEC);
+  Serial.print(":");
+  Serial.print(now.minute(), DEC);
+  Serial.print(":");
+  Serial.print(now.second(), DEC);
+  Serial.print("  ");
+  Serial.print(now.day(), DEC);
+  Serial.print("/");
+  Serial.print(now.month(), DEC);
+  Serial.print("/");
+  Serial.print(now.year(), DEC);
+  Serial.println(" ");
+}
+/*************************************************************************************/
+/*************************************************************************************/
